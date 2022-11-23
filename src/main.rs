@@ -54,16 +54,16 @@ impl Data {
         }
 
         let mut tmp_col = [0_u8; 4];
-        let mut tmp_block_state: [[u8; 4]; Nb] = [[0_u8; 4]; Nb];
+        let mut byte_mtrx: [[u8; 4]; Nb] = [[0_u8; 4]; Nb];
         let mut state: Vec<[[u8; 4]; Nb]> = Vec::new();
         for i in 0..num_blocks {
             for j in 0..Nb {
                 for k in 0..4 {
                     tmp_col[k] = blocks[i][4*j+k];
                 }
-                tmp_block_state[j] = tmp_col;
+                byte_mtrx[j] = tmp_col;
             }
-            state.push(tmp_block_state);
+            state.push(byte_mtrx);
         }
 
         Data {
@@ -88,6 +88,4 @@ fn sbox(b: u8) -> u8 {
 fn main() {
     let path: &str = "/home/nimrafets/projects/rust/tests/aes256/src/main.rs";
     let mut data: Data = Data::from_path(path);
-
-    println!("{:0x}", sbox(0x4f));
 }
