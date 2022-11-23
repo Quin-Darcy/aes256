@@ -3,6 +3,7 @@
 #![allow(unused_variables)]
 #![allow(non_upper_case_globals)]
 use std::fs;
+use polybyte;
 
 
 const BLOCKSIZE: usize = 128; // Number of bits in block
@@ -73,12 +74,20 @@ impl Data {
     }
 }
 
+fn sbox(b: u8) -> u8 {
+    let bin: [u8; 8] = polybyte::byte_to_bin(polybyte::PolyByte::from_byte(b).mult_inv().byte);
+    let con: [u8; 8] = polybyte::byte_to_bin(polybyte::PolyByte::from_byte(0x63).byte);
+    let mut new_bin: [u8; 8] = [0_u8; 8];
+
+    for i in 0..8 {
+        new_bin[8-i-1] = bin[7-i] ^ bin[7-(i+4)%8] ^ bin[7-(i+5)%8] ^ bin[7-(i+6)%8] ^ bin[7-(i+7)%8] ^ con[7-i];
+    }
+    polybyte::bin_to_byte(new_bin)
+}
+
 fn main() {
     let path: &str = "/home/nimrafets/projects/rust/tests/aes256/src/main.rs";
     let mut data: Data = Data::from_path(path);
 
-    println!("{:?}", data.bytes);
-    for s in data.state {
-        println!("{:?}", s);
-    }
+    println!("{:0x}", sbox(0x4f));
 }

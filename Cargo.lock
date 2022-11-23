@@ -5,3 +5,11 @@ version = 3
 [[package]]
 name = "aes256"
 version = "0.1.0"
+dependencies = [
+ "polybyte",
+]
+
+[[package]]
+name = "polybyte"
+version = "0.1.0"
+source = "git+https://github.com/Quin-Darcy/polybyte.git?branch=master#c5b9258f977af104a53ffe144b8b185653426d03"
