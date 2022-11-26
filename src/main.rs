@@ -4,14 +4,21 @@
 #![allow(non_upper_case_globals)]
 use std::fs;
 use polybyte;
+use rand::Rng;
+use std::fs::File;
+use std::io::Write;
 
 
-const BLOCKSIZE: usize = 128; // Number of bits in block
-const Nb: usize = BLOCKSIZE / 32; // Number of columns in state
-const Nk: u32 = 4;
-const Nr: u32 = 10;
+const KEYSIZE: usize = 128;         // Number of bits in cipher key
+const BLOCKSIZE: usize = 128;       // Number of bits in block
+const BPB: usize = BLOCKSIZE / 8;   // Bytes per block
 
-fn gcd(a: u32, b: u32) -> u32 {
+const Nb: usize = BLOCKSIZE / 32;   // Number of columns in state
+const Nk: usize = KEYSIZE / 32;     // Number of 32-bit words in cipher key
+const Nr: usize = 10;               // Number of rounds. KEYSIZE=128:Nr=10; 
+                                    // KEYSIZE=192:Nr=12; KEYSIZE=256:Nr=14
+
+fn gcd(a: usize, b: usize) -> usize {
     if b == 0 {
         return a;
     } else {
@@ -19,14 +26,14 @@ fn gcd(a: u32, b: u32) -> u32 {
     }    
 }
 
-fn lcm(a: u32, b: u32) -> u32 {
+fn lcm(a: usize, b: usize) -> usize {
     (a / gcd(a, b)) * b        
 }
 
 #[derive(Debug)]
 struct Data {
     bytes: Vec<u8>,
-    blocks: Vec<[u8; 16]>,
+    blocks: Vec<[u8; BPB]>,
     state: Vec<[[u8; 4]; Nb]>,
 }
 
@@ -41,16 +48,15 @@ impl Data {
 
     pub fn from_path(path: &str) -> Self {
         let mut bytes: Vec<u8> = fs::read(path).expect("Could not read from file");
-        let num_bits: u32 = 8*bytes.len() as u32;
-        let pad_len: usize = (((lcm(num_bits, BLOCKSIZE as u32) as usize) - 8*bytes.len()) / 8) as usize;
+        let pad_len: usize = lcm(bytes.len(), BPB) - bytes.len();
         bytes.extend(vec![0_u8; pad_len]);
 
-        let mut tmp_block = [0_u8; 16];
-        let mut blocks: Vec<[u8; 16]> = Vec::new();
-        let num_blocks: usize = bytes.len() / (BLOCKSIZE as usize);
+        let mut tmp_block = [0_u8; BPB];
+        let mut blocks: Vec<[u8; BPB]> = Vec::new();
+        let num_blocks: usize = bytes.len() / BPB;
         for i in 0..num_blocks {
-            for j in 0..16 { 
-                tmp_block[j] = bytes[16*i+j]; 
+            for j in 0..BPB { 
+                tmp_block[j] = bytes[BPB*i+j]; 
             }
             blocks.push(tmp_block);
         }
@@ -74,6 +80,23 @@ impl Data {
             state: state,
         }
     }
+
+    pub fn to_file(&mut self, path: &str) {
+        let mut bytes: Vec<u8> = Vec::new();
+        for byte_mtrx in &self.state {
+            for c in 0..Nb {
+                for r in 0..4 {
+                    bytes.push(byte_mtrx[c][r]);
+                }
+            }
+        }
+
+        let mut buffer = match File::create(path) {
+            Ok(b) => b,
+            Err(_e) => panic!("Error. Could not create file {}", path),                    
+        };
+        buffer.write_all(&bytes[..]).unwrap();  
+    }
 }
 
 fn s_box(b: u8) -> u8 {
@@ -82,22 +105,31 @@ fn s_box(b: u8) -> u8 {
     let mut new_bin: [u8; 8] = [0_u8; 8];
 
     for i in 0..8 {
-        new_bin[8-i-1] = bin[7-i] ^ bin[7-(i+4)%8] ^ bin[7-(i+5)%8] ^ bin[7-(i+6)%8] ^ bin[7-(i+7)%8] ^ con[7-i];
+        new_bin[8-i-1] = bin[7-i] ^ bin[7-(i+4)%8] ^ bin[7-(i+5)%8] 
+                        ^ bin[7-(i+6)%8] ^ bin[7-(i+7)%8] ^ con[7-i];
     }
     polybyte::bin_to_byte(new_bin)
 }
 
-fn shift_rows(byte_mtrx: &[[u8; 4]; Nb]) -> [[u8; 4]; Nb] {
+fn sub_bytes(byte_mtrx: &mut [[u8; 4]; Nb]) {
+    for c in 0..Nb {
+        for r in 0..4 {
+            byte_mtrx[c][r] = s_box(byte_mtrx[c][r]);
+        }
+    }
+}
+
+fn shift_rows(byte_mtrx: &mut [[u8; 4]; Nb]) {
     let mut new_byte_mtrx: [[u8; 4]; Nb] = [[0_u8; 4]; Nb];
     for c in 0..Nb {
         for r in 0..4 {
             new_byte_mtrx[c][r] = byte_mtrx[(c+r)%Nb][r];
         }
     }
-    new_byte_mtrx
+    *byte_mtrx = new_byte_mtrx;
 }
 
-fn mix_columns(byte_mtrx: [[u8; 4]; Nb]) -> [[u8; 4]; Nb] {
+fn mix_columns(byte_mtrx: &mut [[u8; 4]; Nb]) {
     let const_poly: [u8; 4] = [0x03, 0x01, 0x01, 0x02];
     let mut tmp_word: polybyte::PolyWord;
     let mut new_byte_mtrx: [[u8; 4]; Nb] = [[0_u8; 4]; Nb];
@@ -108,7 +140,50 @@ fn mix_columns(byte_mtrx: [[u8; 4]; Nb]) -> [[u8; 4]; Nb] {
         tmp_word.mult(&const_word);
         new_byte_mtrx[c] = u32::to_be_bytes(tmp_word.word);
     }
-    new_byte_mtrx
+    *byte_mtrx = new_byte_mtrx;
+}
+
+fn add_round_key(s: &mut [[u8; 4]; Nb], round_key: [[u8; 4]; Nb]) {
+    for c in 0..Nb {
+        for r in 0..4 {
+            s[c][r] = s[c][r] ^ round_key[c][r];
+        }
+    }
+}
+
+fn cipher(byte_mtrx: &mut [[u8; 4]; Nb], key_schedule: [[u8; 4]; Nb*(Nr+1)]) {
+    let mut round_key: [[u8; 4]; Nb] = [[0_u8; 4]; Nb];
+    for i in 0..Nb {
+        round_key[i] = key_schedule[i];
+    }
+    add_round_key(byte_mtrx, round_key);
+    
+    for i in 1..Nr {
+        sub_bytes(byte_mtrx);
+        shift_rows(byte_mtrx);
+        mix_columns(byte_mtrx);
+
+        for j in 0..Nb {
+            round_key[j] = key_schedule[i*Nb+j];
+        }
+        add_round_key(byte_mtrx, round_key);
+    }
+    
+    sub_bytes(byte_mtrx);
+    shift_rows(byte_mtrx);
+
+    for i in 0..Nb {
+        round_key[i] = key_schedule[Nr*Nb+i];
+    }
+    add_round_key(byte_mtrx, round_key);
+}
+
+fn encrypt(data: &mut Data, key: [u8; 4*Nk]) {
+    let key_schedule: [[u8; 4]; Nb*(Nr+1)] = key_expansion(key);
+
+    for i in 0..data.state.len() {
+        cipher(&mut data.state[i], key_schedule);
+    }
 }
 
 fn sub_word(w: [u8; 4]) -> [u8; 4] {
@@ -127,72 +202,48 @@ fn rot_word(w: [u8; 4]) -> [u8; 4] {
     new_word
 }
 
-fn add_round_key(s: &mut [[u8; 4]; Nb], round_key: [u8; 16]) {
-    for c in 0..4 {
-        for r in 0..4 {
-            s[c][r] = s[c][r] ^ round_key[c*4+r];
-        }
-    }
+fn rcon_xor(w: [u8; 4], i: usize) -> [u8; 4] {
+    let mut power_byte: polybyte::PolyByte = polybyte::PolyByte::from_byte(0x02);
+    power_byte.pow(i as u32);
+    let rcon: u32 = u32::from_be_bytes([power_byte.byte, 0x00, 0x00, 0x00]);
+    let input_word: u32 = u32::from_be_bytes(w);
+    (input_word ^ rcon).to_be_bytes()
 }
 
-fn key_expansion(key: [u8; 16]) -> [[u8; 4]; Nb*(Nr+1) as usize] {
-    let mut key_schedule: [[u8; 4]; Nb*(Nr+1) as usize] = [[0_u8; 4]; Nb*(Nr+1) as usize];
-    let mut j: usize;
+fn key_expansion(key: [u8; 4*Nk]) -> [[u8; 4]; Nb*(Nr+1)] {
+    let mut key_schedule: [[u8; 4]; Nb*(Nr+1)] = [[0_u8; 4]; Nb*(Nr+1)];
 
     for i in 0..Nk {
-        j = i as usize;
-        key_schedule[j] = [key[j*4], key[j*4+1], key[j*4+2], key[j*4+3]];
+        key_schedule[i] = [key[4*i], key[4*i+1], key[4*i+2], key[4*i+3]];
     }
 
-    let mut tmp: [u8; 4];
-    for i in Nk..(Nb as u32)*(Nr+1) {
-        j = i as usize;
-        tmp = key_schedule[j-1];
-        
-        if i % Nk == 0 {
-            tmp = sub_word(rot_word(tmp));
-            let mut b: polybyte::PolyByte = polybyte::PolyByte::from_byte(0x02);
-            b.pow(i/Nk);
-            tmp[0] = tmp[0] ^ b.byte;
-        } else if Nk > 6 && i%Nk == 4 {
-            tmp = sub_word(tmp);
+    let mut w1: u32;
+    let mut w2: u32;
+    let mut temp: [u8; 4];
+    for i in Nk..Nb*(Nr+1) {
+        temp = key_schedule[i-1];
+        if i%Nk == 0 {
+            temp = rcon_xor(sub_word(rot_word(temp)), i/Nk);
+        } else if (Nk > 6) && (i%Nk == 4) {
+            temp = sub_word(temp);
         }
-        
-        for k in 0..4 {
-            key_schedule[j][k] = key_schedule[j-(Nk as usize)][k] ^ tmp[k];
-        }
+        w1 = u32::from_be_bytes(key_schedule[i-Nk]);
+        w2 = u32::from_be_bytes(temp);
+        key_schedule[i] = (w1 ^ w2).to_be_bytes();
     }
     key_schedule
 }
 
-fn cipher(s: &mut [[u8; 4]; Nb],  key_schedule: [u8; 16]) {
-    let mut w: [u8; 16] = [0_u8; 16];
-    for i in 0..16 {
-        w[i] = key_schedule[i];
-    }
-    
-    add_round_key(&mut s, w);
-    for i in 1..Nr-1 {
-        s = sub_word(s);
-        s = shift_rows(s);
-        s = mix_columns(s);
-        for j in 0..16 {
-            w[j] = key_schedule[i*Nb+j];
-        }
-        add_round_key(&mut s, w);
-    }
-    s
+fn gen_key() -> [u8; 4*Nk] {
+    rand::thread_rng().gen::<[u8; 4*Nk]>()
 }
 
 fn main() {
-    let path: &str = "/home/nimrafets/projects/rust/tests/aes256/src/main.rs";
+    let path: &str = "./src/main.rs";
     let mut data: Data = Data::from_path(path);
-    let key: [u8; 16] = [0x12, 0xff, 0xae, 0xef, 0x11, 0x89, 0x01, 0xc2,
-                            0x38, 0xd9, 0x1b, 0xcd, 0xf1, 0x77, 0x8a, 0x88];
-
-    println!("{:?}", &key);
-    let key_schedule: [[u8; 4]; Nb*(Nr+1) as usize] = key_expansion(key);
-    println!("{:?}", &key_schedule);
-
+    let key: [u8; 4*Nk] = gen_key();
     
+    let enc_path: &str = "./encrypted.txt";
+    encrypt(&mut data, key);
+    data.to_file(enc_path);
 }
