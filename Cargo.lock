@@ -12,4 +12,4 @@ dependencies = [
 [[package]]
 name = "polybyte"
 version = "0.1.0"
-source = "git+https://github.com/Quin-Darcy/polybyte.git?branch=master#c5b9258f977af104a53ffe144b8b185653426d03"
+source = "git+https://github.com/Quin-Darcy/polybyte.git?branch=master#7f28ae3976f248aa8f73b276bcd2b4ef8f2cd69d"
