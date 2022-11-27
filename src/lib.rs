@@ -10,13 +10,13 @@ use std::fs::File;
 use std::io::Write;
 
 
-const KEYSIZE: usize = 256;         // Number of bits in cipher key
+const KEYSIZE: usize = 128;         // Number of bits in cipher key
 const BLOCKSIZE: usize = 128;       // Number of bits in block
 const BPB: usize = BLOCKSIZE / 8;   // Bytes per block
 
 const Nb: usize = BLOCKSIZE / 32;   // Number of columns in state
 const Nk: usize = KEYSIZE / 32;     // Number of 32-bit words in cipher key
-const Nr: usize = 14;               // Number of rounds. KEYSIZE=128:Nr=10; 
+const Nr: usize = 10;               // Number of rounds. KEYSIZE=128:Nr=10; 
                                     // KEYSIZE=192:Nr=12; KEYSIZE=256:Nr=14
 
 fn gcd(a: usize, b: usize) -> usize {
@@ -307,17 +307,6 @@ pub fn gen_key(key_path: &str) {
     buffer.write_all(&key).unwrap();
 }
 
-/*
-pub fn encrypt(data: &mut Data, key: [u8; 4*Nk]) {
-    let key_schedule: [[u8; 4]; Nb*(Nr+1)] = key_expansion(key);
-
-    for i in 0..data.state.len() {
-        cipher(&mut data.state[i], key_schedule);
-    }
-}
-*/
-
-
 pub fn encrypt(file_path: &str, efile_path: &str, key_path: &str) {
     let mut key: [u8; 4*Nk] = [0_u8; 4*Nk];
     let key_vec: Vec<u8> = fs::read(key_path).expect("Could not read from file");
@@ -332,18 +321,6 @@ pub fn encrypt(file_path: &str, efile_path: &str, key_path: &str) {
     }
     data.to_file(efile_path);
 }
-
-
-/*
-pub fn decrypt(data: &mut Data, key: [u8; 4*Nk]) {
-    let key_schedule: [[u8; 4]; Nb*(Nr+1)] = key_expansion(key);
-
-    for i in 0..data.state.len() {
-        inv_cipher(&mut data.state[i], key_schedule);
-    }
-}
-*/
-
 
 pub fn decrypt(file_path: &str, dfile_path: &str, key_path: &str) {
     let mut key: [u8; 4*Nk] = [0_u8; 4*Nk];
@@ -360,6 +337,7 @@ pub fn decrypt(file_path: &str, dfile_path: &str, key_path: &str) {
     data.to_file(dfile_path);
 }
 
+/*
 fn main() {
     let key_path: &str = "./key.txt";
     let file_path: &str = "./src/main.rs";
@@ -368,21 +346,20 @@ fn main() {
     gen_key(key_path);
     encrypt(file_path, efile_path, key_path);
     decrypt(efile_path, dfile_path, key_path);
-    
+}
+*/
 
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    /*
-    let path: &str = "./src/main.rs";
-    let mut data: Data = Data::from_path(path);
-    let key: [u8; 4*Nk] = gen_key();
-
-    let enc_path: &str = "./encrypted.txt";
-    encrypt(&mut data, key);
-    data.to_file(enc_path);
-
-    let dec_path: &str = "./decrypted.txt";
-    let mut edata: Data = Data::from_path(enc_path);
-    decrypt(&mut edata, key);
-    edata.to_file(dec_path);
-    */
+    #[test]
+    fn test_key_expansion() {
+        if KEYSIZE == 128 {
+            let key: [u8; 16] = [0x2b, 0x7e, 0x15, 0x16, 0x27, 0xae, 0xd2, 0xa6,
+                                 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c];
+            let key_schedule: [[u8; 4]; Nb*(Nr+1)] = key_expansion(key);
+            assert_eq!(key_schedule[4], [0xa0, 0xfa, 0xfe, 0x17]);
+        }
+    }
 }

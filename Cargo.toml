@@ -9,3 +9,5 @@ edition = "2021"
 rand = "0.8"
 polybyte = { git = "https://github.com/Quin-Darcy/polybyte.git", branch = "master" }
 
+[profile.test]
+overflow-checks = false
