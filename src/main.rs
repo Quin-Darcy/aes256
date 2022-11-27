@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 #![allow(non_upper_case_globals)]
+
 use std::fs;
 use polybyte;
 use rand::Rng;
@@ -9,13 +10,13 @@ use std::fs::File;
 use std::io::Write;
 
 
-const KEYSIZE: usize = 128;         // Number of bits in cipher key
+const KEYSIZE: usize = 256;         // Number of bits in cipher key
 const BLOCKSIZE: usize = 128;       // Number of bits in block
 const BPB: usize = BLOCKSIZE / 8;   // Bytes per block
 
 const Nb: usize = BLOCKSIZE / 32;   // Number of columns in state
 const Nk: usize = KEYSIZE / 32;     // Number of 32-bit words in cipher key
-const Nr: usize = 10;               // Number of rounds. KEYSIZE=128:Nr=10; 
+const Nr: usize = 14;               // Number of rounds. KEYSIZE=128:Nr=10; 
                                     // KEYSIZE=192:Nr=12; KEYSIZE=256:Nr=14
 
 fn gcd(a: usize, b: usize) -> usize {
@@ -31,7 +32,7 @@ fn lcm(a: usize, b: usize) -> usize {
 }
 
 #[derive(Debug)]
-struct Data {
+pub struct Data {
     bytes: Vec<u8>,
     blocks: Vec<[u8; BPB]>,
     state: Vec<[[u8; 4]; Nb]>,
@@ -152,14 +153,10 @@ fn add_round_key(s: &mut [[u8; 4]; Nb], round_key: [[u8; 4]; Nb]) {
 }
 
 fn cipher(byte_mtrx: &mut [[u8; 4]; Nb], key_schedule: [[u8; 4]; Nb*(Nr+1)]) {
-    mix_columns(byte_mtrx);
-
-    /*
     let mut round_key: [[u8; 4]; Nb] = [[0_u8; 4]; Nb];
     for i in 0..Nb {
         round_key[i] = key_schedule[i];
     }
-    
     add_round_key(byte_mtrx, round_key);
     
     for i in 1..Nr {
@@ -173,23 +170,13 @@ fn cipher(byte_mtrx: &mut [[u8; 4]; Nb], key_schedule: [[u8; 4]; Nb*(Nr+1)]) {
         add_round_key(byte_mtrx, round_key);
     }
     
-    
     sub_bytes(byte_mtrx);
     shift_rows(byte_mtrx);
-
+    
     for i in 0..Nb {
         round_key[i] = key_schedule[Nr*Nb+i];
     }
     add_round_key(byte_mtrx, round_key);
-    */
-}
-
-fn encrypt(data: &mut Data, key: [u8; 4*Nk]) {
-    let key_schedule: [[u8; 4]; Nb*(Nr+1)] = key_expansion(key);
-
-    for i in 0..data.state.len() {
-        cipher(&mut data.state[i], key_schedule);
-    }
 }
 
 fn inv_s_box(b: u8) -> u8 {
@@ -238,16 +225,13 @@ fn inv_mix_columns(byte_mtrx: &mut [[u8; 4]; Nb]) {
 }
 
 fn inv_cipher(byte_mtrx: &mut [[u8; 4]; Nb], key_schedule: [[u8; 4]; Nb*(Nr+1)]) {
-    inv_mix_columns(byte_mtrx);
-
-    /*
     let mut round_key: [[u8; 4]; Nb] = [[0_u8; 4]; Nb];
     for i in 0..Nb {
         round_key[i] = key_schedule[Nr*Nb+i];
     }
     add_round_key(byte_mtrx, round_key);
     
-    for i in (Nr..1).rev() {
+    for i in (1..Nr).rev() {
         inv_shift_rows(byte_mtrx);
         inv_sub_bytes(byte_mtrx);
         for j in 0..Nb {
@@ -256,25 +240,14 @@ fn inv_cipher(byte_mtrx: &mut [[u8; 4]; Nb], key_schedule: [[u8; 4]; Nb*(Nr+1)])
         add_round_key(byte_mtrx, round_key);
         inv_mix_columns(byte_mtrx);
     }
-    
+
     inv_shift_rows(byte_mtrx);
     inv_sub_bytes(byte_mtrx);
-    shift_rows(byte_mtrx);
 
     for i in 0..Nb {
         round_key[i] = key_schedule[i];
     }
     add_round_key(byte_mtrx, round_key);
-    */
-
-}
-
-fn decrypt(data: &mut Data, key: [u8; 4*Nk]) {
-    let key_schedule: [[u8; 4]; Nb*(Nr+1)] = key_expansion(key);
-
-    for i in 0..data.state.len() {
-        inv_cipher(&mut data.state[i], key_schedule);
-    }
 }
 
 fn sub_word(w: [u8; 4]) -> [u8; 4] {
@@ -325,27 +298,91 @@ fn key_expansion(key: [u8; 4*Nk]) -> [[u8; 4]; Nb*(Nr+1)] {
     key_schedule
 }
 
-fn gen_key() -> [u8; 4*Nk] {
-    rand::thread_rng().gen::<[u8; 4*Nk]>()
+pub fn gen_key(key_path: &str) {
+    let key: [u8; 4*Nk] = rand::thread_rng().gen::<[u8; 4*Nk]>();
+    let mut buffer = match File::create(key_path) {
+        Ok(b) => b,
+        Err(_e) => panic!("Error. Could not create file {}", key_path),                    
+    };
+    buffer.write_all(&key).unwrap();
+}
+
+/*
+pub fn encrypt(data: &mut Data, key: [u8; 4*Nk]) {
+    let key_schedule: [[u8; 4]; Nb*(Nr+1)] = key_expansion(key);
+
+    for i in 0..data.state.len() {
+        cipher(&mut data.state[i], key_schedule);
+    }
+}
+*/
+
+
+pub fn encrypt(file_path: &str, efile_path: &str, key_path: &str) {
+    let mut key: [u8; 4*Nk] = [0_u8; 4*Nk];
+    let key_vec: Vec<u8> = fs::read(key_path).expect("Could not read from file");
+    for i in 0..4*Nk {
+        key[i] = key_vec[i];
+    }
+    let key_schedule: [[u8; 4]; Nb*(Nr+1)] = key_expansion(key);
+
+    let mut data: Data = Data::from_path(file_path);
+    for i in 0..data.state.len() {
+        cipher(&mut data.state[i], key_schedule);
+    }
+    data.to_file(efile_path);
+}
+
+
+/*
+pub fn decrypt(data: &mut Data, key: [u8; 4*Nk]) {
+    let key_schedule: [[u8; 4]; Nb*(Nr+1)] = key_expansion(key);
+
+    for i in 0..data.state.len() {
+        inv_cipher(&mut data.state[i], key_schedule);
+    }
+}
+*/
+
+
+pub fn decrypt(file_path: &str, dfile_path: &str, key_path: &str) {
+    let mut key: [u8; 4*Nk] = [0_u8; 4*Nk];
+    let key_vec: Vec<u8> = fs::read(key_path).expect("Could not read from file");
+    for i in 0..4*Nk {
+        key[i] = key_vec[i];
+    }
+    let key_schedule: [[u8; 4]; Nb*(Nr+1)] = key_expansion(key);
+
+    let mut data: Data = Data::from_path(file_path);
+    for i in 0..data.state.len() {
+        inv_cipher(&mut data.state[i], key_schedule);
+    }
+    data.to_file(dfile_path);
 }
 
 fn main() {
+    let key_path: &str = "./key.txt";
+    let file_path: &str = "./src/main.rs";
+    let efile_path: &str = "./encrypted.txt";
+    let dfile_path: &str = "./decrypted.txt";
+    gen_key(key_path);
+    encrypt(file_path, efile_path, key_path);
+    decrypt(efile_path, dfile_path, key_path);
+    
+
+
+    /*
     let path: &str = "./src/main.rs";
     let mut data: Data = Data::from_path(path);
     let key: [u8; 4*Nk] = gen_key();
 
-    let mut s: [[u8; 4]; Nb] = data.state[0];
-    println!("{:?}", &s);
-    mix_columns(&mut s);
-    inv_mix_columns(&mut s);
-    println!("{:?}", &s);
-    /*
     let enc_path: &str = "./encrypted.txt";
     encrypt(&mut data, key);
     data.to_file(enc_path);
 
+    let dec_path: &str = "./decrypted.txt";
     let mut edata: Data = Data::from_path(enc_path);
-    decrypt(&mut data, key);
-    edata.to_file("./decrypted.txt");
+    decrypt(&mut edata, key);
+    edata.to_file(dec_path);
     */
 }
