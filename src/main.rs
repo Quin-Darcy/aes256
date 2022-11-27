@@ -152,10 +152,14 @@ fn add_round_key(s: &mut [[u8; 4]; Nb], round_key: [[u8; 4]; Nb]) {
 }
 
 fn cipher(byte_mtrx: &mut [[u8; 4]; Nb], key_schedule: [[u8; 4]; Nb*(Nr+1)]) {
+    mix_columns(byte_mtrx);
+
+    /*
     let mut round_key: [[u8; 4]; Nb] = [[0_u8; 4]; Nb];
     for i in 0..Nb {
         round_key[i] = key_schedule[i];
     }
+    
     add_round_key(byte_mtrx, round_key);
     
     for i in 1..Nr {
@@ -169,6 +173,7 @@ fn cipher(byte_mtrx: &mut [[u8; 4]; Nb], key_schedule: [[u8; 4]; Nb*(Nr+1)]) {
         add_round_key(byte_mtrx, round_key);
     }
     
+    
     sub_bytes(byte_mtrx);
     shift_rows(byte_mtrx);
 
@@ -176,6 +181,7 @@ fn cipher(byte_mtrx: &mut [[u8; 4]; Nb], key_schedule: [[u8; 4]; Nb*(Nr+1)]) {
         round_key[i] = key_schedule[Nr*Nb+i];
     }
     add_round_key(byte_mtrx, round_key);
+    */
 }
 
 fn encrypt(data: &mut Data, key: [u8; 4*Nk]) {
@@ -192,9 +198,17 @@ fn inv_s_box(b: u8) -> u8 {
     let mut new_bin: [u8; 8] = [0_u8; 8];
 
     for i in 0..8 {
-        new_bin[7-i] = bin[7-(i+2)%8] ^ bin[7-(i+5)%8] ^ bin[7-(i+7)%8];;
+        new_bin[7-i] = bin[7-(i+2)%8] ^ bin[7-(i+5)%8] ^ bin[7-(i+7)%8];
     }
     polybyte::PolyByte::from_byte(polybyte::bin_to_byte(new_bin)).mult_inv().byte
+}
+
+fn inv_sub_bytes(byte_mtrx: &mut [[u8; 4]; Nb]) {
+    for c in 0..Nb {
+        for r in 0..4 {
+            byte_mtrx[c][r] = inv_s_box(byte_mtrx[c][r]);
+        }
+    }
 }
 
 fn inv_shift_rows(byte_mtrx: &mut [[u8; 4]; Nb]) {
@@ -205,6 +219,62 @@ fn inv_shift_rows(byte_mtrx: &mut [[u8; 4]; Nb]) {
         }
     }
     *byte_mtrx = new_byte_mtrx;
+}
+
+fn inv_mix_columns(byte_mtrx: &mut [[u8; 4]; Nb]) {
+    let const_poly: [u8; 4] = [0x0b, 0x0d, 0x09, 0x0e];
+    let mut tmp_word: polybyte::PolyWord;
+    let mut new_byte_mtrx: [[u8; 4]; Nb] = [[0_u8; 4]; Nb];
+    let const_word: polybyte::PolyWord =  polybyte::PolyWord::from_bytes(const_poly);
+    
+    for c in 0..Nb {
+        tmp_word = polybyte::PolyWord::from_bytes(byte_mtrx[c]);
+        tmp_word.mult(&const_word);
+        new_byte_mtrx[c] = u32::to_be_bytes(tmp_word.word);
+
+        new_byte_mtrx[c] = rot_word(rot_word(new_byte_mtrx[c]));
+    }
+    *byte_mtrx = new_byte_mtrx;
+}
+
+fn inv_cipher(byte_mtrx: &mut [[u8; 4]; Nb], key_schedule: [[u8; 4]; Nb*(Nr+1)]) {
+    inv_mix_columns(byte_mtrx);
+
+    /*
+    let mut round_key: [[u8; 4]; Nb] = [[0_u8; 4]; Nb];
+    for i in 0..Nb {
+        round_key[i] = key_schedule[Nr*Nb+i];
+    }
+    add_round_key(byte_mtrx, round_key);
+    
+    for i in (Nr..1).rev() {
+        inv_shift_rows(byte_mtrx);
+        inv_sub_bytes(byte_mtrx);
+        for j in 0..Nb {
+            round_key[j] = key_schedule[i*Nb+j];
+        }
+        add_round_key(byte_mtrx, round_key);
+        inv_mix_columns(byte_mtrx);
+    }
+    
+    inv_shift_rows(byte_mtrx);
+    inv_sub_bytes(byte_mtrx);
+    shift_rows(byte_mtrx);
+
+    for i in 0..Nb {
+        round_key[i] = key_schedule[i];
+    }
+    add_round_key(byte_mtrx, round_key);
+    */
+
+}
+
+fn decrypt(data: &mut Data, key: [u8; 4*Nk]) {
+    let key_schedule: [[u8; 4]; Nb*(Nr+1)] = key_expansion(key);
+
+    for i in 0..data.state.len() {
+        inv_cipher(&mut data.state[i], key_schedule);
+    }
 }
 
 fn sub_word(w: [u8; 4]) -> [u8; 4] {
@@ -264,7 +334,18 @@ fn main() {
     let mut data: Data = Data::from_path(path);
     let key: [u8; 4*Nk] = gen_key();
 
-    //let enc_path: &str = "./encrypted.txt";
-    //encrypt(&mut data, key);
-    //data.to_file(enc_path);
+    let mut s: [[u8; 4]; Nb] = data.state[0];
+    println!("{:?}", &s);
+    mix_columns(&mut s);
+    inv_mix_columns(&mut s);
+    println!("{:?}", &s);
+    /*
+    let enc_path: &str = "./encrypted.txt";
+    encrypt(&mut data, key);
+    data.to_file(enc_path);
+
+    let mut edata: Data = Data::from_path(enc_path);
+    decrypt(&mut data, key);
+    edata.to_file("./decrypted.txt");
+    */
 }
