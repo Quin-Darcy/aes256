@@ -186,6 +186,27 @@ fn encrypt(data: &mut Data, key: [u8; 4*Nk]) {
     }
 }
 
+fn inv_s_box(b: u8) -> u8 {
+    let new_b = b ^ 0x63;
+    let bin: [u8; 8] = polybyte::byte_to_bin(polybyte::PolyByte::from_byte(new_b).byte);
+    let mut new_bin: [u8; 8] = [0_u8; 8];
+
+    for i in 0..8 {
+        new_bin[7-i] = bin[7-(i+2)%8] ^ bin[7-(i+5)%8] ^ bin[7-(i+7)%8];;
+    }
+    polybyte::PolyByte::from_byte(polybyte::bin_to_byte(new_bin)).mult_inv().byte
+}
+
+fn inv_shift_rows(byte_mtrx: &mut [[u8; 4]; Nb]) {
+    let mut new_byte_mtrx: [[u8; 4]; Nb] = [[0_u8; 4]; Nb];
+    for c in 0..Nb {
+        for r in 0..4 {
+            new_byte_mtrx[c][r] = byte_mtrx[(c+Nb-r)%Nb][r];
+        }
+    }
+    *byte_mtrx = new_byte_mtrx;
+}
+
 fn sub_word(w: [u8; 4]) -> [u8; 4] {
     let mut new_word: [u8; 4] = [0_u8; 4];
     for i in 0..4 {
@@ -242,8 +263,8 @@ fn main() {
     let path: &str = "./src/main.rs";
     let mut data: Data = Data::from_path(path);
     let key: [u8; 4*Nk] = gen_key();
-    
-    let enc_path: &str = "./encrypted.txt";
-    encrypt(&mut data, key);
-    data.to_file(enc_path);
+
+    //let enc_path: &str = "./encrypted.txt";
+    //encrypt(&mut data, key);
+    //data.to_file(enc_path);
 }
