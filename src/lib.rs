@@ -287,7 +287,7 @@ fn key_expansion(key: [u8; 4*Nk]) -> [[u8; 4]; Nb*(Nr+1)] {
     for i in Nk..Nb*(Nr+1) {
         temp = key_schedule[i-1];
         if i%Nk == 0 {
-            temp = rcon_xor(sub_word(rot_word(temp)), i/Nk);
+            temp = rcon_xor(sub_word(rot_word(temp)), i/Nk-1);
         } else if (Nk > 6) && (i%Nk == 4) {
             temp = sub_word(temp);
         }
@@ -337,18 +337,6 @@ pub fn decrypt(file_path: &str, dfile_path: &str, key_path: &str) {
     data.to_file(dfile_path);
 }
 
-/*
-fn main() {
-    let key_path: &str = "./key.txt";
-    let file_path: &str = "./src/main.rs";
-    let efile_path: &str = "./encrypted.txt";
-    let dfile_path: &str = "./decrypted.txt";
-    gen_key(key_path);
-    encrypt(file_path, efile_path, key_path);
-    decrypt(efile_path, dfile_path, key_path);
-}
-*/
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,10 +344,11 @@ mod tests {
     #[test]
     fn test_key_expansion() {
         if KEYSIZE == 128 {
-            let key: [u8; 16] = [0x2b, 0x7e, 0x15, 0x16, 0x27, 0xae, 0xd2, 0xa6,
+            let key: [u8; 16] = [0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6,
                                  0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c];
             let key_schedule: [[u8; 4]; Nb*(Nr+1)] = key_expansion(key);
-            assert_eq!(key_schedule[4], [0xa0, 0xfa, 0xfe, 0x17]);
+            assert_eq!(key_schedule[8], [0xf2, 0xc2, 0x95, 0xf2]);
         }
     }
 }
+
