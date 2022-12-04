@@ -11,3 +11,13 @@ polybyte = { git = "https://github.com/Quin-Darcy/polybyte.git", branch = "maste
 
 [profile.test]
 overflow-checks = false
+
+[profile.release]
+debug = true
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "benchmark"
+harness = false
